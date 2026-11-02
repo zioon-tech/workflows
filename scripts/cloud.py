@@ -7,7 +7,14 @@ def request(url, method="GET", data=None, headers=None):
                 url, data=data, headers=headers or {}, method=method), timeout=60) as response:
             return response.read()
     except urllib.error.HTTPError as error:
-        raise RuntimeError("HTTP request failed with status " + str(error.code)) from None
+        code, request_id = "unknown", "unknown"
+        try:
+            body = json.loads(error.read())
+            code, request_id = body.get("Code", "unknown"), body.get("RequestId", "unknown")
+        except Exception:
+            pass
+        raise RuntimeError("HTTP request failed with status {} ({}; request {})".format(
+            error.code, code, request_id)) from None
 
 def rpc(endpoint, version, action, parameters, credentials=None):
     query = dict(parameters, Action=action, Version=version, Format="JSON")
