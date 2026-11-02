@@ -1,0 +1,43 @@
+name: Deploy CI component
+on:
+  workflow_call:
+    inputs:
+      component:
+        type: string
+        required: true
+      ci-run:
+        type: string
+        required: true
+      check-only:
+        type: boolean
+        default: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: production-${{ github.repository }}-${{ inputs.component }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zioon-tech/workflows
+          ref: 191acbba0ed2080dc06078b569155a702d4853dc
+          persist-credentials: false
+      - name: Release verified artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_CONFIG: ${{ vars.DEPLOY_CONFIG }}
+          DEPLOY_ROLE_ARN: ${{ vars.DEPLOY_ROLE_ARN }}
+          DEPLOY_OIDC_PROVIDER_ARN: ${{ vars.DEPLOY_OIDC_PROVIDER_ARN }}
+          DEPLOY_BUCKET: ${{ vars.DEPLOY_BUCKET }}
+          DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
+          CHECK_ONLY: ${{ inputs.check-only }}
+          COMPONENT: ${{ inputs.component }}
+          CI_RUN: ${{ inputs.ci-run }}
+        run: python3 scripts/release.py "$COMPONENT" "$CI_RUN"

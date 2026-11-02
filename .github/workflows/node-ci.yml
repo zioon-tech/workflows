@@ -17,6 +17,9 @@ on:
       artifact-path:
         type: string
         default: ""
+      release-component:
+        type: string
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -54,6 +57,18 @@ jobs:
         env:
           CHECK_COMMAND: ${{ inputs.command }}
         run: bash -e -o pipefail -c "$CHECK_COMMAND"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: inputs.release-component != ''
+        with:
+          repository: zioon-tech/workflows
+          ref: 191acbba0ed2080dc06078b569155a702d4853dc
+          path: .release-tools
+          persist-credentials: false
+      - name: Package deployable release
+        if: inputs.release-component != ''
+        env:
+          COMPONENT: ${{ inputs.release-component }}
+        run: node scripts/ci/package-release.mjs "$COMPONENT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: inputs.artifact-name != ''
         with:
