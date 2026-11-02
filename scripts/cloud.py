@@ -17,11 +17,12 @@ def request(url, method="GET", data=None, headers=None):
             error.code, code, request_id)) from None
 
 def rpc(endpoint, version, action, parameters, credentials=None):
-    query = dict(parameters, Action=action, Version=version, Format="JSON")
+    query = dict(parameters, Action=action, Version=version, Format="JSON",
+                 SignatureNonce=str(uuid.uuid4()),
+                 Timestamp=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
     if credentials:
         query.update(AccessKeyId=credentials["AccessKeyId"], SignatureMethod="HMAC-SHA1",
-                     SignatureVersion="1.0", SignatureNonce=str(uuid.uuid4()),
-                     Timestamp=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
+                     SignatureVersion="1.0")
         if credentials.get("SecurityToken"):
             query["SecurityToken"] = credentials["SecurityToken"]
         quote = lambda s: urllib.parse.quote(str(s), safe="~")
