@@ -8,14 +8,22 @@ def digest(path):
             value.update(chunk)
     return value.hexdigest()
 
-def extract(archive, destination, manifest):
+def extract(archive, destination, manifest, validate_only=False):
     """Validate the entire archive before writing; links may only stay inside it."""
     root = pathlib.Path(destination).resolve()
     with tarfile.open(str(archive), "r:gz") as tar:
         members = tar.getmembers()
         if len(members) != manifest["entries"]:
             raise ValueError("Release entry count mismatch")
-        if sum(m.size for m in members if m.isfile()) != manifest["expandedBytes"]:
+        regular = {m.name: m for m in members if m.isfile()}
+        expanded = sum(m.size for m in members if m.isfile())
+        for member in members:
+            if member.islnk():
+                target = regular.get(member.linkname)
+                if target is None:
+                    raise ValueError("Archive hardlink must target an internal regular file")
+                expanded += target.size
+        if expanded != manifest["expandedBytes"]:
             raise ValueError("Release expanded size mismatch")
         names, links = set(), []
         for member in members:
@@ -23,12 +31,14 @@ def extract(archive, destination, manifest):
             if path.is_absolute() or ".." in path.parts or member.name in names:
                 raise ValueError("Invalid archive path")
             names.add(member.name)
-            if not (member.isfile() or member.isdir() or member.issym()):
+            if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
                 raise ValueError("Unsupported archive member")
             if member.issym():
                 target = pathlib.Path(os.path.normpath(str(root / member.name / ".." / member.linkname)))
                 if os.path.isabs(member.linkname) or not str(target).startswith(str(root) + os.sep):
                     raise ValueError("Archive link escapes release")
+                links.append(member.name)
+            elif member.islnk():
                 links.append(member.name)
         for name in names:
             if any(name.startswith(link + "/") for link in links):
@@ -37,6 +47,8 @@ def extract(archive, destination, manifest):
             member.mode &= 0o755
             member.uid = member.gid = 0
             member.uname = member.gname = ""
+        if validate_only:
+            return
         tar.extractall(str(root), members=members)
 
 def ready(urls, timeout=90):
@@ -76,6 +88,7 @@ def deploy(archive, manifest, config, check_only=False):
         if pointer.exists() and not pointer.is_symlink():
             raise RuntimeError("Current pointer is a real directory; migrate it explicitly first")
         if check_only:
+            extract(archive, root / ".validation", manifest, validate_only=True)
             print(json.dumps(dict(status="preflight_passed", component=manifest["component"])))
             return
         release_id = manifest["commit"] + "-" + str(manifest["ciRun"])
