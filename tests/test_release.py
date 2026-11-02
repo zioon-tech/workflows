@@ -1,4 +1,4 @@
-import hashlib, importlib.util, io, json, pathlib, tarfile, tempfile, unittest
+import hashlib, importlib.util, io, json, os, pathlib, tarfile, tempfile, unittest
 from unittest.mock import patch
 
 def module(name):
@@ -9,6 +9,7 @@ def module(name):
     return result
 
 deploy = module("deploy")
+pack = module("pack")
 
 class ReleaseTests(unittest.TestCase):
     def archive(self, root, members):
@@ -57,6 +58,39 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(current.resolve(), previous.resolve())
             statuses = [json.loads(line)["status"] for line in (root/"deployments.jsonl").read_text().splitlines()]
             self.assertEqual(statuses, ["prepared", "switching", "rolled_back"])
+
+    def test_package_with_dependency_hardlinks_validates_and_extracts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            stage, output, destination = root/"stage", root/"out", root/"extracted"
+            stage.mkdir()
+            (stage/"dependency").write_text("runtime dependency")
+            os.link(str(stage/"dependency"), str(stage/"alias"))
+            (stage/"symbolic").symlink_to("dependency")
+            pack.package(stage, output, "memory", "service")
+            manifest = json.loads((output/"manifest.json").read_text())
+            deploy.extract(output/"release.tgz", destination, manifest, validate_only=True)
+            self.assertFalse(destination.exists())
+            destination.mkdir()
+            deploy.extract(output/"release.tgz", destination, manifest)
+            self.assertEqual((destination/"dependency").read_text(), "runtime dependency")
+            self.assertEqual((destination/"alias").read_text(), "runtime dependency")
+            self.assertTrue((destination/"symbolic").is_symlink())
+
+    def test_hardlinks_cannot_target_outside_or_symlinks(self):
+        for target in ["../../outside", "symbolic"]:
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                archive = root/"release.tgz"
+                with tarfile.open(str(archive), "w:gz") as stream:
+                    symbolic = tarfile.TarInfo("symbolic")
+                    symbolic.type, symbolic.linkname = tarfile.SYMTYPE, "internal"
+                    stream.addfile(symbolic)
+                    link = tarfile.TarInfo("alias")
+                    link.type, link.linkname = tarfile.LNKTYPE, target
+                    stream.addfile(link)
+                with self.assertRaises(ValueError):
+                    deploy.extract(archive, root/"stage", dict(entries=2, expandedBytes=0))
 
 if __name__ == "__main__":
     unittest.main()
