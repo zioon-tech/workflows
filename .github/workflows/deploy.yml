@@ -11,6 +11,9 @@ on:
       check-only:
         type: boolean
         default: true
+      retire-inactive-builds:
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -27,7 +30,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zioon-tech/workflows
-          ref: 85777accd66d963b3305964b51a3a4bfdd131cb9
+          ref: 72ea59431473a24d8c2d6f7a5db4bbd463ea2dcf
           persist-credentials: false
       - name: Release verified artifact
         env:
@@ -38,6 +41,7 @@ jobs:
           DEPLOY_BUCKET: ${{ vars.DEPLOY_BUCKET }}
           DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
           CHECK_ONLY: ${{ inputs.check-only }}
+          RETIRE_INACTIVE_BUILDS: ${{ inputs.retire-inactive-builds }}
           COMPONENT: ${{ inputs.component }}
           CI_RUN: ${{ inputs.ci-run }}
         run: python3 scripts/release.py "$COMPONENT" "$CI_RUN"
