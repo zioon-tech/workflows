@@ -46,14 +46,18 @@ with tempfile.TemporaryDirectory() as directory:
     script_dir = pathlib.Path(__file__).parent
     remote = ((script_dir / "cloud.py").read_text() + "\n" +
               (script_dir / "disk.py").read_text() + "\n" +
+              (script_dir / "retire.py").read_text() + "\n" +
               (script_dir / "deploy.py").read_text())
     remote += "\nsettings = " + repr(dict(bucket=bucket, key=prefix, manifest=manifest,
-                                           target=target, checkOnly=os.environ.get("CHECK_ONLY") == "true")) + "\n"
+                                           target=target, checkOnly=os.environ.get("CHECK_ONLY") == "true",
+                                           retire=os.environ.get("RETIRE_INACTIVE_BUILDS") == "true")) + "\n"
     remote += """
 credentials = instance_credentials()
 expected = settings["manifest"]
 root = pathlib.Path(settings["target"]["root"])
 root.mkdir(parents=True, exist_ok=True)
+if settings["retire"]:
+    retire_inactive_builds(root)
 needed = expected["expandedBytes"] + expected["archiveBytes"] + 512*1024*1024
 require_disk_space(root, needed)
 downloaded = json.loads(oss(settings["bucket"], settings["key"] + "/manifest.json", credentials))

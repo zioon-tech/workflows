@@ -7,7 +7,10 @@ def disk_command(arguments):
                                 universal_newlines=True, timeout=60)
         return dict(output=result.stdout, error=result.stderr[:1000], exitCode=result.returncode)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return dict(output="", error=type(error).__name__)
+        output = getattr(error, "output", "") or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", "replace")
+        return dict(output=output, error=type(error).__name__)
 
 def disk_sizes(path, depth, limit=24):
     result = disk_command(["du", "-x", "-B1", "--max-depth=" + str(depth), str(path)])
