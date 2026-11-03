@@ -44,7 +44,9 @@ with tempfile.TemporaryDirectory() as directory:
     oss(bucket, prefix + "/release.tgz", credentials, "PUT", archive.read_bytes())
     oss(bucket, prefix + "/manifest.json", credentials, "PUT", (folder / "manifest.json").read_bytes())
     script_dir = pathlib.Path(__file__).parent
-    remote = (script_dir / "cloud.py").read_text() + "\n" + (script_dir / "deploy.py").read_text()
+    remote = ((script_dir / "cloud.py").read_text() + "\n" +
+              (script_dir / "disk.py").read_text() + "\n" +
+              (script_dir / "deploy.py").read_text())
     remote += "\nsettings = " + repr(dict(bucket=bucket, key=prefix, manifest=manifest,
                                            target=target, checkOnly=os.environ.get("CHECK_ONLY") == "true")) + "\n"
     remote += """
@@ -53,8 +55,7 @@ expected = settings["manifest"]
 root = pathlib.Path(settings["target"]["root"])
 root.mkdir(parents=True, exist_ok=True)
 needed = expected["expandedBytes"] + expected["archiveBytes"] + 512*1024*1024
-if shutil.disk_usage(str(root)).free < needed:
-    raise RuntimeError("Insufficient disk space before downloading release")
+require_disk_space(root, needed)
 downloaded = json.loads(oss(settings["bucket"], settings["key"] + "/manifest.json", credentials))
 if downloaded != expected:
     raise RuntimeError("Stored manifest mismatch")
