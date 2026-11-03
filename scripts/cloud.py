@@ -1,5 +1,15 @@
 """Small dependency-free Alibaba RPC/OSS client. Credentials never reach stdout."""
-import base64, datetime, hashlib, hmac, json, time, urllib.error, urllib.parse, urllib.request, uuid
+import base64, datetime, hashlib, hmac, json, time, urllib.error, urllib.parse, urllib.request, uuid, zlib
+
+def python_command(source):
+    """Transmit the fixed, reviewed program within ECS's command-content limit."""
+    payload = base64.b64encode(zlib.compress(source.encode(), 9)).decode()
+    command = ("python3 - <<'ZIOON_RELEASE_PY'\nimport base64, zlib\n"
+               "exec(compile(zlib.decompress(base64.b64decode(" + repr(payload) +
+               ")), '<zioon-release>', 'exec'))\nZIOON_RELEASE_PY\n")
+    if len(base64.b64encode(command.encode())) > 16 * 1024:
+        raise RuntimeError("Compressed release command exceeds ECS content limit")
+    return command
 
 def request(url, method="GET", data=None, headers=None):
     try:

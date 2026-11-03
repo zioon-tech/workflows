@@ -1,6 +1,6 @@
 """Deploy one green CI component from its own repository using GitHub OIDC."""
 import base64, json, os, pathlib, shutil, subprocess, sys, tempfile, time
-from cloud import oss, request, rpc
+from cloud import oss, request, rpc, python_command
 
 component, run_id = sys.argv[1:3]
 repository = os.environ["GITHUB_REPOSITORY"]
@@ -73,7 +73,7 @@ finally:
     if incoming.exists():
         incoming.unlink()
 """
-    command = "python3 - <<'ZIOON_RELEASE_PY'\n" + remote + "\nZIOON_RELEASE_PY\n"
+    command = python_command(remote)
     response = rpc("ecs.cn-shanghai.aliyuncs.com", "2014-05-26", "RunCommand", dict(
         RegionId="cn-shanghai", **{"InstanceId.1": os.environ["DEPLOY_INSTANCE_ID"]},
         CommandContent=base64.b64encode(command.encode()).decode(), ContentEncoding="Base64",
