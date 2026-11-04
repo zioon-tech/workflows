@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zioon-tech/workflows
-          ref: 30a10678139deb83aec0b27039a0a242191a0e85
+          ref: 21e1446e4c8f07f9e9da42c38f1fb651f7040d50
           persist-credentials: false
       - name: Release verified artifact
         env:
