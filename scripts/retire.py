@@ -13,12 +13,17 @@ RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
-    # Fresh inventory confirms caa449f is current and 000b0a1 is its rollback.
+    # Inventory now confirms dc4be47 is current and caa449f is its rollback.
+    # Reference checks still retain this build if a later rollback makes it live.
+    "/opt/agent-device-cloud/releases/000b0a19808d4a3e92ddd7bffa812f256989f04c-41770857505",
     "/opt/agent-device-cloud/releases/60841571d2681090a68ea6b51b2b0719dcb8da62-41495697498",
     "/opt/agent-device-cloud/releases/87489f74762bae0456f412774bf649eb4ddeb8ec-41686300466",
     "/tmp/zioon-plugin-release-vrruwpi8",
 )
-RETIRED_STORES = ("/root/.local/share/pnpm/store/v3/files",)
+RETIRED_STORES = (
+    "/root/.local/share/pnpm/store/v3/files",
+    "/var/lib/agent-device-cloud/.local/share/pnpm/store/v3/files",
+)
 
 def inside(path, base):
     return path == base or path.startswith(base + os.sep)
