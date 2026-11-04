@@ -1,10 +1,15 @@
 """Retire dependencies from explicitly inventoried, unreferenced old builds."""
-import contextlib, fcntl, json, os, pathlib, shutil, subprocess, time
+import contextlib, fcntl, json, os, pathlib, shutil, stat, subprocess, time
 
 # Preserve source, data, archives and static output, even in temporary staging.
 RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/91e2217",
     "/opt/agent-device-cloud/releases/6fc4315",
+    "/opt/agent-device-cloud/releases/f8e71eb",
+    "/opt/agent-device-cloud/releases/247040a",
+    "/opt/agent-device-cloud/releases/d3d84de",
+    "/opt/agent-device-cloud/releases/c9e2322",
+    "/opt/agent-device-cloud/releases/343d469",
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
@@ -13,6 +18,26 @@ RETIRED_BUILDS = (
 
 def inside(path, base):
     return path == base or path.startswith(base + os.sep)
+
+def dependency_file_usage(paths):
+    """Estimate released blocks without counting hardlinks retained elsewhere."""
+    inodes = {}
+    for path in paths:
+        for directory, folders, filenames in os.walk(path):
+            for filename in filenames:
+                info = (pathlib.Path(directory) / filename).lstat()
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                key = (info.st_dev, info.st_ino)
+                entry = inodes.setdefault(key, dict(links=info.st_nlink, removed=0,
+                                                    bytes=info.st_blocks * 512))
+                entry["removed"] += 1
+    return dict(
+        reclaimableFileBytes=sum(entry["bytes"] for entry in inodes.values()
+                                 if entry["removed"] == entry["links"]),
+        sharedFileBytes=sum(entry["bytes"] for entry in inodes.values()
+                           if entry["removed"] < entry["links"]),
+    )
 
 def retired_dependencies(build):
     base = pathlib.Path(build)
@@ -113,8 +138,12 @@ def retire_inactive_builds(root):
                 size = subprocess.check_output(["du", "-s", "-B1", path],
                                                universal_newlines=True, timeout=60)
                 plan.append(dict(path=path, allocatedBytes=int(size.split()[0])))
+        # Hardlinked pnpm files may remain in other copies or its content-addressed store.
+        # Count the links being removed together, rather than equating du with free space.
+        file_usage = dependency_file_usage([item["path"] for item in plan])
         print(json.dumps(dict(status="retirement_plan", freeBytes=before, wholeDisk=whole_disk,
-                              majorDirectories=major, dependencies=plan, retained=retained)), flush=True)
+                              majorDirectories=major, dependencies=plan, retained=retained,
+                              **file_usage)), flush=True)
         # Refresh all live references immediately before removing dependencies.
         refreshed = build_references(RETIRED_BUILDS)
         if any(refreshed[base] for base in RETIRED_BUILDS
