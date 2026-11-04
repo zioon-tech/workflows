@@ -13,6 +13,8 @@ RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
+    # Superseded by the current 000b0a1 release and its 87489f7 rollback source.
+    "/opt/agent-device-cloud/releases/60841571d2681090a68ea6b51b2b0719dcb8da62-41495697498",
     "/tmp/zioon-plugin-release-vrruwpi8",
 )
 
