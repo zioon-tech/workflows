@@ -11,10 +11,10 @@ def python_command(source):
         raise RuntimeError("Compressed release command exceeds ECS content limit")
     return command
 
-def request(url, method="GET", data=None, headers=None):
+def request(url, method="GET", data=None, headers=None, timeout=60):
     try:
         with urllib.request.urlopen(urllib.request.Request(
-                url, data=data, headers=headers or {}, method=method), timeout=60) as response:
+                url, data=data, headers=headers or {}, method=method), timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as error:
         code, request_id = "unknown", "unknown"
@@ -57,7 +57,9 @@ def instance_credentials():
     return json.loads(request(base + "/latest/meta-data/ram/security-credentials/" + role, headers=headers))
 
 def oss(bucket, key, credentials, method="GET", data=None):
-    expiry = str(int(time.time()) + 600)
+    # Large CI archives cross regions; keep RPC/read deadlines unchanged.
+    timeout = 600 if method == "PUT" else 60
+    expiry = str(int(time.time()) + max(600, timeout + 60))
     canonical = "/" + bucket + "/" + key + "?security-token=" + credentials["SecurityToken"]
     text = method + "\n\n\n" + expiry + "\n" + canonical
     signature = base64.b64encode(hmac.new(credentials["AccessKeySecret"].encode(),
@@ -67,4 +69,4 @@ def oss(bucket, key, credentials, method="GET", data=None):
                                        **{"security-token": credentials["SecurityToken"]}))
     return request("https://" + bucket + ".oss-cn-shanghai.aliyuncs.com/" +
                    urllib.parse.quote(key, safe="/") + "?" + query, method, data,
-                   {"Content-Type": ""} if method == "PUT" else {})
+                   {"Content-Type": ""} if method == "PUT" else {}, timeout=timeout)
