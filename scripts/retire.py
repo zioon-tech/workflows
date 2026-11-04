@@ -3,6 +3,8 @@ import contextlib, fcntl, json, os, pathlib, shutil, subprocess, time
 
 # Preserve source, data, archives and static output, even in temporary staging.
 RETIRED_BUILDS = (
+    "/opt/agent-device-cloud/releases/91e2217",
+    "/opt/agent-device-cloud/releases/6fc4315",
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
