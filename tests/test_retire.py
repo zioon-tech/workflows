@@ -1,4 +1,4 @@
-import importlib.util, pathlib, tempfile, unittest
+import importlib.util, os, pathlib, tempfile, unittest
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
@@ -7,6 +7,23 @@ retire = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(retire)
 
 class RetirementTests(unittest.TestCase):
+    def test_shared_links_release_space_only_when_the_last_copy_is_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory).resolve()
+            first, second, external = root / "first", root / "second", root / "external"
+            for path in (first, second, external):
+                path.mkdir()
+            file = first / "dependency"
+            file.write_bytes(b"dependency" * 4096)
+            os.link(str(file), str(second / "dependency"))
+            os.link(str(file), str(external / "dependency"))
+            (first / "symbolic").symlink_to(external / "dependency")
+            allocated = file.stat().st_blocks * 512
+            usage = retire.dependency_file_usage([str(first), str(second)])
+            self.assertEqual(usage, dict(reclaimableFileBytes=0, sharedFileBytes=allocated))
+            usage = retire.dependency_file_usage([str(first), str(second), str(external)])
+            self.assertEqual(usage, dict(reclaimableFileBytes=allocated, sharedFileBytes=0))
+
     def test_dependencies_require_an_owning_package_and_keep_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory).resolve()

@@ -34,9 +34,10 @@ def require_disk_space(root, required):
                   rootFilesystem=disk_sizes("/", 2),
                   releaseRoot=disk_sizes(root, 2))
     for name, path in [("backupDirectories", "/var/lib/zion-next/backups"),
-                       ("rootCache", "/root/.cache"), ("temporaryDirectories", "/tmp")]:
+                       ("rootCache", "/root/.cache"), ("temporaryDirectories", "/tmp"),
+                       ("homeDirectories", "/home"), ("rootUserDirectories", "/root")]:
         if pathlib.Path(path).is_dir():
-            report[name] = disk_sizes(path, 1)
+            report[name] = disk_sizes(path, 3 if name in ("homeDirectories", "rootUserDirectories") else 1)
     pointers = {}
     for base in ["/opt", "/srv"]:
         for path in pathlib.Path(base).glob("*/current"):
