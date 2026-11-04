@@ -1,6 +1,12 @@
 """Small dependency-free Alibaba RPC/OSS client. Credentials never reach stdout."""
 import base64, datetime, hashlib, hmac, json, time, urllib.error, urllib.parse, urllib.request, uuid, zlib
 
+class CloudHTTPError(RuntimeError):
+    def __init__(self, status, code, request_id):
+        self.status = status
+        super().__init__("HTTP request failed with status {} ({}; request {})".format(
+            status, code, request_id))
+
 def python_command(source):
     """Transmit the fixed, reviewed program within ECS's command-content limit."""
     payload = base64.b64encode(zlib.compress(source.encode(), 9)).decode()
@@ -23,8 +29,7 @@ def request(url, method="GET", data=None, headers=None, timeout=60):
             code, request_id = body.get("Code", "unknown"), body.get("RequestId", "unknown")
         except Exception:
             pass
-        raise RuntimeError("HTTP request failed with status {} ({}; request {})".format(
-            error.code, code, request_id)) from None
+        raise CloudHTTPError(error.code, code, request_id) from None
 
 def rpc(endpoint, version, action, parameters, credentials=None):
     query = dict(parameters, Action=action, Version=version, Format="JSON",

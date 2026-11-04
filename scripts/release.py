@@ -1,6 +1,7 @@
 """Deploy one green CI component from its own repository using GitHub OIDC."""
 import base64, json, os, pathlib, shutil, subprocess, sys, tempfile, time
 from cloud import oss, request, rpc, python_command
+from artifact import stage_artifact
 
 component, run_id = sys.argv[1:3]
 repository = os.environ["GITHUB_REPOSITORY"]
@@ -41,8 +42,9 @@ with tempfile.TemporaryDirectory() as directory:
         OIDCToken=oidc, RoleSessionName="github-" + os.environ["GITHUB_RUN_ID"], DurationSeconds=3600))["Credentials"]
     prefix = "releases/" + repository + "/" + sha + "/" + run_id + "/" + component
     bucket = os.environ["DEPLOY_BUCKET"]
-    oss(bucket, prefix + "/release.tgz", credentials, "PUT", archive.read_bytes())
-    oss(bucket, prefix + "/manifest.json", credentials, "PUT", (folder / "manifest.json").read_bytes())
+    artifact_status = stage_artifact(bucket, prefix, credentials, manifest, archive)
+    print(json.dumps(dict(status="release_artifact_" + artifact_status,
+                          component=component, commit=sha, ciRun=run_id)), flush=True)
     script_dir = pathlib.Path(__file__).parent
     remote = ((script_dir / "cloud.py").read_text() + "\n" +
               (script_dir / "disk.py").read_text() + "\n" +
