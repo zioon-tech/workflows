@@ -65,6 +65,7 @@ class RetirementTests(unittest.TestCase):
             (old / "node_modules").mkdir()
             builds = (str(old),)
             with patch.object(retire, "RETIRED_BUILDS", builds), \
+                    patch.object(retire, "RETIRED_STORES", ()), \
                     patch.object(retire.pathlib.Path, "glob", return_value=[]), \
                     patch.object(retire, "disk_sizes", create=True, return_value={}), \
                     patch.object(retire, "disk_command", create=True, return_value={}), \
@@ -76,3 +77,61 @@ class RetirementTests(unittest.TestCase):
                     retire.retire_inactive_builds(str(root))
             remove.assert_not_called()
             self.assertTrue((old / "node_modules").is_dir())
+
+    def test_cache_accepts_only_sha512_shards_at_the_inventoried_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory).resolve()
+            shard = root / "ab"
+            shard.mkdir()
+            for suffix in ("", "-exec", "-index.json"):
+                (shard / ("c" * 126 + suffix)).write_text("cached")
+            with patch.object(retire, "RETIRED_STORES", (str(root),)):
+                self.assertEqual(retire.retired_store(str(root)), [str(root)])
+                with self.assertRaisesRegex(RuntimeError, "canonical inventoried"):
+                    retire.retired_store(str(shard))
+                (shard / "user-data.json").write_text("preserve")
+                with self.assertRaisesRegex(RuntimeError, "unexpected content"):
+                    retire.retired_store(str(root))
+
+    def test_cache_symlinks_and_nested_directories_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory).resolve()
+            shard = root / "ab"
+            shard.mkdir()
+            candidate = shard / ("c" * 126)
+            candidate.symlink_to(root, target_is_directory=True)
+            with patch.object(retire, "RETIRED_STORES", (str(root),)):
+                with self.assertRaisesRegex(RuntimeError, "unexpected content"):
+                    retire.retired_store(str(root))
+                candidate.unlink()
+                candidate.mkdir()
+                with self.assertRaisesRegex(RuntimeError, "unexpected content"):
+                    retire.retired_store(str(root))
+
+    def test_active_package_manager_is_detected_without_a_store_path(self):
+        self.assertTrue(retire.package_manager_active("node\0/usr/lib/pnpm/bin/pnpm.cjs\0install\0"))
+        self.assertTrue(retire.package_manager_active("/usr/local/bin/pnpm\0store\0prune\0"))
+        self.assertFalse(retire.package_manager_active("node\0/opt/app/server.js\0"))
+        self.assertFalse(retire.package_manager_active("bash\0-c\0echo pnpm\0"))
+
+    def test_new_cache_reference_aborts_dependency_removal_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory).resolve()
+            old, cache = root / "old", root / "cache"
+            old.mkdir()
+            (old / "package.json").write_text("{}")
+            (old / "node_modules").mkdir()
+            cache.mkdir()
+            empty = {str(old): [], str(cache): []}
+            active = {str(old): [], str(cache): ["active pnpm process"]}
+            with patch.object(retire, "RETIRED_BUILDS", (str(old),)), \
+                    patch.object(retire, "RETIRED_STORES", (str(cache),)), \
+                    patch.object(retire.pathlib.Path, "glob", return_value=[]), \
+                    patch.object(retire, "disk_sizes", create=True, return_value={}), \
+                    patch.object(retire, "disk_command", create=True, return_value={}), \
+                    patch.object(retire, "build_references", side_effect=[empty, active]), \
+                    patch.object(retire.subprocess, "check_output", return_value="4096\tcache"), \
+                    patch.object(retire.shutil, "rmtree") as remove, patch("builtins.print"):
+                with self.assertRaisesRegex(RuntimeError, "references changed"):
+                    retire.retire_inactive_builds(str(root))
+            remove.assert_not_called()

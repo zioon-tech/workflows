@@ -1,5 +1,5 @@
 """Retire dependencies from explicitly inventoried, unreferenced old builds."""
-import contextlib, fcntl, json, os, pathlib, shutil, stat, subprocess, time
+import contextlib, fcntl, json, os, pathlib, re, shutil, stat, subprocess, time
 
 # Preserve source, data, archives and static output, even in temporary staging.
 RETIRED_BUILDS = (
@@ -13,10 +13,12 @@ RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
-    # Superseded by the current 000b0a1 release and its 87489f7 rollback source.
+    # Fresh inventory confirms caa449f is current and 000b0a1 is its rollback.
     "/opt/agent-device-cloud/releases/60841571d2681090a68ea6b51b2b0719dcb8da62-41495697498",
+    "/opt/agent-device-cloud/releases/87489f74762bae0456f412774bf649eb4ddeb8ec-41686300466",
     "/tmp/zioon-plugin-release-vrruwpi8",
 )
+RETIRED_STORES = ("/root/.local/share/pnpm/store/v3/files",)
 
 def inside(path, base):
     return path == base or path.startswith(base + os.sep)
@@ -60,6 +62,28 @@ def retired_dependencies(build):
             directories.remove("node_modules")
     return paths
 
+def retired_store(path):
+    """Accept only the inventoried pnpm v3 SHA-512 cache, never arbitrary data."""
+    base = pathlib.Path(path)
+    if path not in RETIRED_STORES or base.is_symlink() or str(base.resolve()) != path:
+        raise RuntimeError("Package cache is not the canonical inventoried path")
+    if not base.exists():
+        return []
+    if not base.is_dir():
+        raise RuntimeError("Package cache is not a directory")
+    for shard in base.iterdir():
+        if shard.is_symlink() or not shard.is_dir() or not re.fullmatch("[0-9a-f]{2}", shard.name):
+            raise RuntimeError("Package cache has an unexpected shard")
+        for file in shard.iterdir():
+            if not stat.S_ISREG(file.lstat().st_mode) or not re.fullmatch(
+                    r"[0-9a-f]{126}(?:-exec|-index\.json)?", file.name):
+                raise RuntimeError("Package cache has unexpected content")
+    return [path]
+
+def package_manager_active(command):
+    return any(pathlib.Path(token).name in ("pnpm", "pnpm.cjs", "pnpm.js")
+               for token in command.split("\0") if token)
+
 def build_references(builds):
     references = {base: [] for base in builds}
     def add(path, target):
@@ -67,7 +91,8 @@ def build_references(builds):
             if inside(target, base):
                 references[base].append(path)
     search = [path for path in ["/opt", "/srv", "/etc/systemd/system", "/etc/caddy",
-                               "/var/lib/zion-next"] if os.path.isdir(path)]
+                               "/var/lib/zion-next", "/home", "/root/.local/share/pnpm"]
+              if os.path.isdir(path)]
     links = subprocess.check_output(
         ["find", *search, "-type", "l", "-print0"], timeout=90)
     for raw in links.split(b"\0"):
@@ -93,6 +118,10 @@ def build_references(builds):
                 add("process fd " + directory.name, os.path.realpath(str(descriptor)))
             for filename in ["maps", "cmdline", "mountinfo"]:
                 text = (directory / filename).read_bytes().decode("utf-8", "replace")
+                if filename == "cmdline" and package_manager_active(text):
+                    for base in builds:
+                        if base in RETIRED_STORES:
+                            references[base].append("active pnpm process " + directory.name)
                 for base in builds:
                     if base in text:
                         references[base].append("process " + filename + " " + directory.name)
@@ -125,39 +154,47 @@ def retire_inactive_builds(root):
         # Bound the second pass too; timeout output is kept for incomplete diagnostics.
         major = disk_command(["du", "-x", "-s", "-B1", "/usr", "/opt", "/tmp",
                               "/root", "/srv", "/home", "/var"])
-        references = build_references(RETIRED_BUILDS)
-        plan, retained = [], []
-        for base in RETIRED_BUILDS:
+        candidates = RETIRED_BUILDS + RETIRED_STORES
+        references = build_references(candidates)
+        plan, caches, retained = [], [], []
+        for base in candidates:
             if references[base]:
                 retained.append(dict(path=base, references=references[base][:20]))
                 continue
             try:
-                dependencies = retired_dependencies(base)
+                dependencies = retired_store(base) if base in RETIRED_STORES else retired_dependencies(base)
             except RuntimeError as error:
                 retained.append(dict(path=base, references=["validation: " + str(error)]))
                 continue
             for path in dependencies:
                 size = subprocess.check_output(["du", "-s", "-B1", path],
                                                universal_newlines=True, timeout=60)
-                plan.append(dict(path=path, allocatedBytes=int(size.split()[0])))
+                destination = caches if base in RETIRED_STORES else plan
+                destination.append(dict(path=path, allocatedBytes=int(size.split()[0])))
         # Hardlinked pnpm files may remain in other copies or its content-addressed store.
         # Count the links being removed together, rather than equating du with free space.
-        file_usage = dependency_file_usage([item["path"] for item in plan])
+        removals = plan + caches
+        file_usage = dependency_file_usage([item["path"] for item in removals])
         print(json.dumps(dict(status="retirement_plan", freeBytes=before, wholeDisk=whole_disk,
-                              majorDirectories=major, dependencies=plan, retained=retained,
+                              majorDirectories=major, dependencies=plan, packageCaches=caches,
+                              retained=retained,
                               **file_usage)), flush=True)
         # Refresh all live references immediately before removing dependencies.
-        refreshed = build_references(RETIRED_BUILDS)
-        if any(refreshed[base] for base in RETIRED_BUILDS
-               if any(inside(item["path"], base) for item in plan)):
+        refreshed = build_references(candidates)
+        if any(refreshed[base] for base in candidates
+               if any(inside(item["path"], base) for item in removals)):
             raise RuntimeError("Retirement references changed during inspection")
-        for item in plan:
+        for item in caches:
+            retired_store(item["path"])
+        for item in removals:
             if pathlib.Path(item["path"]).is_symlink():
                 raise RuntimeError("Dependency path changed to a symlink")
+        for item in removals:
             shutil.rmtree(item["path"])
         report = dict(status="inactive_dependencies_retired", freeBeforeBytes=before,
                       freeAfterBytes=shutil.disk_usage(str(root)).free,
-                      dependencies=plan, retained=retained, sourceAndDataPreserved=True,
+                      dependencies=plan, packageCaches=caches, retained=retained,
+                      sourceAndDataPreserved=True,
                       timestamp=int(time.time()))
         journal = pathlib.Path(root) / "dependency-retirements.jsonl"
         with journal.open("a") as stream:
