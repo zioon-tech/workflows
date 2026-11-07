@@ -13,9 +13,11 @@ RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/console-refinement-20261101",
     "/opt/agent-device-cloud/releases/root-sharing-20261101",
     "/opt/agent-device-cloud/releases/collaboration-20261031",
-    # Inventory now confirms dc4be47 is current and caa449f is its rollback.
-    # Reference checks still retain this build if a later rollback makes it live.
+    # Inventoried ADC releases; live and immediate rollback references are
+    # rechecked under component locks before any dependency tree is removed.
     "/opt/agent-device-cloud/releases/000b0a19808d4a3e92ddd7bffa812f256989f04c-41770857505",
+    "/opt/agent-device-cloud/releases/dc4be47385d9daf2ed816b22a0ae47f4f973bd58-41829701455",
+    "/opt/agent-device-cloud/releases/510724f2bd1560741ae33a76ab28801238a8ea77-41849418067",
     "/opt/agent-device-cloud/releases/60841571d2681090a68ea6b51b2b0719dcb8da62-41495697498",
     "/opt/agent-device-cloud/releases/87489f74762bae0456f412774bf649eb4ddeb8ec-41686300466",
     "/tmp/zioon-plugin-release-vrruwpi8",
