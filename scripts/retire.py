@@ -18,6 +18,9 @@ RETIRED_BUILDS = (
     "/opt/agent-device-cloud/releases/000b0a19808d4a3e92ddd7bffa812f256989f04c-41770857505",
     "/opt/agent-device-cloud/releases/dc4be47385d9daf2ed816b22a0ae47f4f973bd58-41829701455",
     "/opt/agent-device-cloud/releases/510724f2bd1560741ae33a76ab28801238a8ea77-41849418067",
+    # This inventoried pilot is the current rollback. Reference checks retain it
+    # until a successful service switch makes the previous full release rollback.
+    "/opt/agent-device-cloud/releases/510724f2-gui-fast-path-20261106",
     "/opt/agent-device-cloud/releases/60841571d2681090a68ea6b51b2b0719dcb8da62-41495697498",
     "/opt/agent-device-cloud/releases/87489f74762bae0456f412774bf649eb4ddeb8ec-41686300466",
     "/tmp/zioon-plugin-release-vrruwpi8",
