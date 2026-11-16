@@ -42,6 +42,13 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(oss.call_count, 2)
         self.assertTrue(all(len(call.args) == 3 for call in oss.call_args_list))
 
+    def test_explicit_preflight_reuse_needs_no_runner_object_permissions(self):
+        with patch.object(artifact, "oss", side_effect=AssertionError("runner object access")) as oss:
+            self.assertEqual(artifact.stage_artifact(
+                "bucket", "immutable-release", {}, self.manifest, self.archive,
+                reuse_upload=True), "reuse_requested")
+        oss.assert_not_called()
+
     def test_corrupt_or_truncated_archive_is_rejected_without_overwriting(self):
         for payload in (b"wrong archive!!!!", self.payload[:-1]):
             with patch.object(artifact, "oss",

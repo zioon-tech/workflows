@@ -4,7 +4,13 @@ import json
 from cloud import CloudHTTPError, oss
 
 
-def stage_artifact(bucket, prefix, credentials, manifest, archive):
+def stage_artifact(bucket, prefix, credentials, manifest, archive, reuse_upload=False):
+    # The release caller has already verified the selected CI artifact. The
+    # instance must still compare the stored manifest and verify archive SHA-256
+    # before preparing or switching anything. No GitHub-side object GET is
+    # needed when explicitly reusing a preflight upload.
+    if reuse_upload:
+        return "reuse_requested"
     try:
         stored_manifest = json.loads(oss(bucket, prefix + "/manifest.json", credentials))
     except CloudHTTPError as error:

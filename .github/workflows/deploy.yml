@@ -11,6 +11,10 @@ on:
       check-only:
         type: boolean
         default: true
+      reuse-upload:
+        description: Reuse selected CI objects from a successful preflight
+        type: boolean
+        default: false
       retire-inactive-builds:
         type: boolean
         default: false
@@ -30,7 +34,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zioon-tech/workflows
-          ref: 68acc409b579cb4ee0a803563704008b60288a54
+          ref: b514ae6db2a3bf2a7dd125ef6abc4c3d9d30f738
           persist-credentials: false
       - name: Release verified artifact
         env:
@@ -41,6 +45,7 @@ jobs:
           DEPLOY_BUCKET: ${{ vars.DEPLOY_BUCKET }}
           DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
           CHECK_ONLY: ${{ inputs.check-only }}
+          REUSE_UPLOAD: ${{ inputs.reuse-upload }}
           RETIRE_INACTIVE_BUILDS: ${{ inputs.retire-inactive-builds }}
           COMPONENT: ${{ inputs.component }}
           CI_RUN: ${{ inputs.ci-run }}
