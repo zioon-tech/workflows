@@ -2,6 +2,7 @@
 import base64, json, os, pathlib, shutil, subprocess, sys, tempfile, time
 from cloud import oss, request, rpc, python_command
 from artifact import stage_artifact
+from upload import upload_archive
 
 component, run_id = sys.argv[1:3]
 started = time.monotonic()
@@ -52,7 +53,7 @@ with tempfile.TemporaryDirectory() as directory:
     bucket = os.environ["DEPLOY_BUCKET"]
     artifact_status = stage_artifact(
         bucket, prefix, credentials, manifest, archive,
-        reuse_upload=os.environ.get("REUSE_UPLOAD") == "true")
+        reuse_upload=os.environ.get("REUSE_UPLOAD") == "true", upload=upload_archive)
     print(json.dumps(dict(status="release_artifact_" + artifact_status,
                           component=component, commit=sha, ciRun=run_id)), flush=True)
     script_dir = pathlib.Path(__file__).parent
