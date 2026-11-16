@@ -42,7 +42,9 @@ with tempfile.TemporaryDirectory() as directory:
         OIDCToken=oidc, RoleSessionName="github-" + os.environ["GITHUB_RUN_ID"], DurationSeconds=3600))["Credentials"]
     prefix = "releases/" + repository + "/" + sha + "/" + run_id + "/" + component
     bucket = os.environ["DEPLOY_BUCKET"]
-    artifact_status = stage_artifact(bucket, prefix, credentials, manifest, archive)
+    artifact_status = stage_artifact(
+        bucket, prefix, credentials, manifest, archive,
+        reuse_upload=os.environ.get("REUSE_UPLOAD") == "true")
     print(json.dumps(dict(status="release_artifact_" + artifact_status,
                           component=component, commit=sha, ciRun=run_id)), flush=True)
     script_dir = pathlib.Path(__file__).parent
