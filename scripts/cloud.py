@@ -31,6 +31,38 @@ def request(url, method="GET", data=None, headers=None, timeout=60):
             pass
         raise CloudHTTPError(error.code, code, request_id) from None
 
+class UploadBody:
+    """Bound file reads so HTTPS sends small blocks, with no whole-archive copy."""
+    budget = 600
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.size = stream.seek(0, 2)
+        stream.seek(0)
+        self.started = time.monotonic()
+        self.reported = self.started
+        self.bytes_read = 0
+        self.progress()
+
+    def progress(self):
+        print(json.dumps(dict(status="release_archive_upload_progress",
+                              bytesRead=self.bytes_read, archiveBytes=self.size,
+                              elapsedSeconds=round(time.monotonic() - self.started, 3))),
+              flush=True)
+
+    def read(self, size=-1):
+        if time.monotonic() - self.started >= self.budget:
+            raise TimeoutError("Archive upload exceeded its transfer budget")
+        block = self.stream.read(min(size, 64 * 1024) if size >= 0 else 64 * 1024)
+        self.bytes_read += len(block)
+        if self.bytes_read > self.size or (not block and self.bytes_read != self.size):
+            raise RuntimeError("Archive size changed during upload")
+        now = time.monotonic()
+        if now - self.reported >= 5 or not block:
+            self.progress()
+            self.reported = now
+        return block
+
 def rpc(endpoint, version, action, parameters, credentials=None):
     query = dict(parameters, Action=action, Version=version, Format="JSON",
                  SignatureNonce=str(uuid.uuid4()),
@@ -62,9 +94,12 @@ def instance_credentials():
     return json.loads(request(base + "/latest/meta-data/ram/security-credentials/" + role, headers=headers))
 
 def oss(bucket, key, credentials, method="GET", data=None):
-    # Large CI archives cross regions; keep RPC/read deadlines unchanged.
-    timeout = 600 if method == "PUT" else 60
-    expiry = str(int(time.time()) + max(600, timeout + 60))
+    streamed = method == "PUT" and hasattr(data, "read")
+    body = UploadBody(data) if streamed else data
+    # Streaming writes have a 60s I/O timeout and a bounded 600s read budget.
+    # Leave time for the last write and response after the final body read.
+    timeout = 60 if streamed or method != "PUT" else 600
+    expiry = str(int(time.time()) + (900 if streamed else max(600, timeout + 60)))
     canonical = "/" + bucket + "/" + key + "?security-token=" + credentials["SecurityToken"]
     text = method + "\n\n\n" + expiry + "\n" + canonical
     signature = base64.b64encode(hmac.new(credentials["AccessKeySecret"].encode(),
@@ -72,6 +107,9 @@ def oss(bucket, key, credentials, method="GET", data=None):
     query = urllib.parse.urlencode(dict(OSSAccessKeyId=credentials["AccessKeyId"],
                                        Expires=expiry, Signature=signature,
                                        **{"security-token": credentials["SecurityToken"]}))
+    headers = {"Content-Type": ""} if method == "PUT" else {}
+    if streamed:
+        headers["Content-Length"] = str(body.size)
     return request("https://" + bucket + ".oss-cn-shanghai.aliyuncs.com/" +
-                   urllib.parse.quote(key, safe="/") + "?" + query, method, data,
-                   {"Content-Type": ""} if method == "PUT" else {}, timeout=timeout)
+                   urllib.parse.quote(key, safe="/") + "?" + query, method, body,
+                   headers, timeout=timeout)

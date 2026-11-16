@@ -4,6 +4,12 @@ from cloud import oss, request, rpc, python_command
 from artifact import stage_artifact
 
 component, run_id = sys.argv[1:3]
+started = time.monotonic()
+def phase(status):
+    print(json.dumps(dict(status=status, component=component,
+                          elapsedSeconds=round(time.monotonic() - started, 3))), flush=True)
+
+phase("release_source_validation_started")
 repository = os.environ["GITHUB_REPOSITORY"]
 if os.environ["GITHUB_REF"] != "refs/heads/main" or not run_id.isdecimal():
     raise RuntimeError("Production releases must be dispatched from main with a numeric CI run ID")
@@ -33,6 +39,7 @@ with tempfile.TemporaryDirectory() as directory:
     archive = folder / "release.tgz"
     if digest(archive) != manifest["archiveSha256"] or archive.stat().st_size != manifest["archiveBytes"]:
         raise RuntimeError("CI artifact integrity mismatch")
+    phase("release_source_validated")
     # Request short-lived credentials only after the artifact passes validation.
     oidc_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=sts.aliyuncs.com"
     oidc = json.loads(request(oidc_url, headers={
@@ -40,6 +47,7 @@ with tempfile.TemporaryDirectory() as directory:
     credentials = rpc("sts.cn-shanghai.aliyuncs.com", "2015-04-01", "AssumeRoleWithOIDC", dict(
         RoleArn=os.environ["DEPLOY_ROLE_ARN"], OIDCProviderArn=os.environ["DEPLOY_OIDC_PROVIDER_ARN"],
         OIDCToken=oidc, RoleSessionName="github-" + os.environ["GITHUB_RUN_ID"], DurationSeconds=3600))["Credentials"]
+    phase("release_cloud_authorized")
     prefix = "releases/" + repository + "/" + sha + "/" + run_id + "/" + component
     bucket = os.environ["DEPLOY_BUCKET"]
     artifact_status = stage_artifact(
