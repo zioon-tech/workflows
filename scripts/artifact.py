@@ -31,7 +31,8 @@ def stage_artifact(bucket, prefix, credentials, manifest, archive, reuse_upload=
                     hashlib.sha256(stored_archive).hexdigest() != manifest["archiveSha256"]):
                 raise RuntimeError("Existing release archive differs from the qualified CI artifact")
             return "reused"
-    oss(bucket, prefix + "/release.tgz", credentials, "PUT", archive.read_bytes())
+    with archive.open("rb") as stream:
+        oss(bucket, prefix + "/release.tgz", credentials, "PUT", stream)
     oss(bucket, prefix + "/manifest.json", credentials, "PUT",
         json.dumps(manifest).encode())
     return "uploaded"

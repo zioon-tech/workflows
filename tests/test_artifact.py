@@ -66,12 +66,19 @@ class ArtifactTests(unittest.TestCase):
         oss.assert_called_once()
 
     def test_missing_manifest_uploads_archive_before_publishing_manifest(self):
-        with patch.object(artifact, "oss", side_effect=[
-                cloud.CloudHTTPError(404, "NoSuchKey", "test"), b"", b""]) as oss:
+        def exchange(bucket, key, credentials, method="GET", data=None):
+            if method == "GET":
+                raise cloud.CloudHTTPError(404, "NoSuchKey", "test")
+            if key.endswith("/release.tgz"):
+                self.assertFalse(data.closed)
+                self.assertEqual(data.read(), self.payload)
+            return b""
+        with patch.object(artifact, "oss", side_effect=exchange) as oss:
             self.assertEqual(self.stage(), "uploaded")
         self.assertEqual(oss.call_count, 3)
         self.assertTrue(oss.call_args_list[1].args[1].endswith("/release.tgz"))
-        self.assertEqual(oss.call_args_list[1].args[3:], ("PUT", self.payload))
+        self.assertEqual(oss.call_args_list[1].args[3], "PUT")
+        self.assertTrue(oss.call_args_list[1].args[4].closed)
         self.assertTrue(oss.call_args_list[2].args[1].endswith("/manifest.json"))
         self.assertEqual(json.loads(oss.call_args_list[2].args[4]), self.manifest)
 
@@ -81,6 +88,14 @@ class ArtifactTests(unittest.TestCase):
                 cloud.CloudHTTPError(404, "NoSuchKey", "test"), b"", b""]) as oss:
             self.assertEqual(self.stage(), "uploaded")
         self.assertEqual(oss.call_count, 4)
+
+    def test_upload_failure_never_publishes_manifest_or_retries(self):
+        with patch.object(artifact, "oss", side_effect=[
+                cloud.CloudHTTPError(404, "NoSuchKey", "test"), TimeoutError()]) as oss:
+            with self.assertRaises(TimeoutError):
+                self.stage()
+        self.assertEqual(oss.call_count, 2)
+        self.assertTrue(oss.call_args_list[1].args[4].closed)
 
     def test_permission_and_network_failures_abort_without_writes_or_retries(self):
         for error in (cloud.CloudHTTPError(403, "AccessDenied", "test"), TimeoutError()):
