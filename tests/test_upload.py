@@ -1,5 +1,7 @@
 import contextlib
+import hashlib
 import io
+import json
 import os
 import pathlib
 import subprocess
@@ -24,7 +26,7 @@ class NativeUploadTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
 
     def execute(self):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(upload, "qualify_lifecycle"):
             upload.upload_archive("test-bucket", "release.tgz", {}, self.archive)
 
     def test_binary_checksum_mismatch_prevents_execution(self):
@@ -80,6 +82,67 @@ class NativeUploadTests(unittest.TestCase):
                 upload.put_file("client", self.directory.name, "bucket", "key",
                                 credentials, self.archive, 40)
         run.assert_called_once()
+
+    def test_actual_client_json_footer_is_accepted(self):
+        credentials = {"AccessKeyId": "id", "AccessKeySecret": "secret", "SecurityToken": "token"}
+        result = subprocess.CompletedProcess([], 0, '{"UploadId":"test"}\n\n0.1(s) elapsed\n', "")
+        with patch.object(upload.subprocess, "run", return_value=result):
+            self.assertEqual(upload.client_api(
+                "client", self.directory.name, "bucket", "key", credentials,
+                "initiate-multipart-upload"), {"UploadId": "test"})
+
+    def test_missing_list_permission_aborts_empty_upload(self):
+        def api(*args, **kwargs):
+            operation = args[5]
+            if operation == "initiate-multipart-upload":
+                return {"UploadId": "test"}
+            if operation == "list-parts":
+                raise RuntimeError("code=AccessDenied")
+            return {}
+        with patch.object(upload, "client_api", side_effect=api) as calls:
+            with self.assertRaisesRegex(RuntimeError, "AccessDenied"):
+                upload.qualify_lifecycle("client", self.directory.name, "bucket", "key", {})
+        self.assertEqual([call.args[5] for call in calls.call_args_list], [
+            "initiate-multipart-upload", "list-parts", "abort-multipart-upload"])
+
+    def test_multipart_is_completed_with_verified_sorted_parts(self):
+        completed = []
+        def api(*args, **kwargs):
+            operation = args[5]
+            if operation == "initiate-multipart-upload":
+                return {"UploadId": "test"}
+            options = args[6]
+            if operation == "upload-part":
+                path = pathlib.Path(options[options.index("--body") + 1][7:])
+                return {"Header": {"Etag": [
+                    '"' + hashlib.md5(path.read_bytes()).hexdigest().upper() + '"']}}
+            if operation == "complete-multipart-upload":
+                completed.extend(json.loads(pathlib.Path(options[-1][7:]).read_text())["Part"])
+                return {"ETag": "confirmed"}
+            raise AssertionError("Unexpected abort after confirmed completion")
+        with patch.object(upload, "client_api", side_effect=api):
+            upload.put_file("client", self.directory.name, "bucket", "key", {}, self.archive, 40)
+        self.assertEqual([part["PartNumber"] for part in completed], list(range(1, 18)))
+
+    def test_corrupt_part_aborts_and_never_completes(self):
+        def api(*args, **kwargs):
+            if args[5] == "initiate-multipart-upload":
+                return {"UploadId": "test"}
+            return {"ETag": "invalid"}
+        with patch.object(upload, "client_api", side_effect=api) as calls:
+            with self.assertRaisesRegex(RuntimeError, "integrity"):
+                upload.put_file("client", self.directory.name, "bucket", "key", {}, self.archive, 40)
+        operations = [call.args[5] for call in calls.call_args_list]
+        self.assertNotIn("complete-multipart-upload", operations)
+        self.assertEqual(operations[-1], "abort-multipart-upload")
+
+    def test_lifecycle_failure_blocks_probe_and_full_archive(self):
+        with patch.object(upload, "install_client", return_value="client"), \
+                patch.object(upload, "qualify_lifecycle", side_effect=RuntimeError("AccessDenied")), \
+                patch.object(upload, "put_file") as put:
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, "AccessDenied"):
+                upload.upload_archive("bucket", "key", {}, self.archive)
+        put.assert_not_called()
 
 
 if __name__ == "__main__":
